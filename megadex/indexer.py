@@ -4,14 +4,17 @@ import exifread
 import json
 import logging
 import magic
+import pyodbc
 import shapefile
 import subprocess
 import xlrd
 import xmltodict
 import zipfile
+from dbfread       import DBF
 from elasticsearch import Elasticsearch
 from openpyxl      import load_workbook
 from pptx          import Presentation
+from pykml         import parser as kml_parser
 from megadex.util  import get_ext
 
 
@@ -21,6 +24,7 @@ logger = logging.getLogger('megadex')
 class Indexer(Elasticsearch):
 
     def __init__(self, *args, **kwargs):
+        self.deep = kwargs.pop('deep', False)
         super(Indexer, self).__init__(*args, **kwargs)
 
     def index_file(self, filename):
@@ -48,6 +52,13 @@ class Indexer(Elasticsearch):
     def _index_magic(self, filename):
         file_type = magic.from_file(filename).lower()
         mime      = magic.from_file(filename, mime=True).lower()
+        logger.debug('magic file type: {0} {1}'.format(file_type, mime))
+
+	if 'access' in (file_type, mime):
+	    return self.index_mdb(filename)
+
+        if 'ascii' in (file_type, mime):
+            return self.index_text(filename)
 
         if 'csv' in (file_type, mime):
             return self.index_csv(filename)
@@ -72,6 +83,9 @@ class Indexer(Elasticsearch):
 
         if 'zip' in (file_type, mime):
             return self.index_zip(filename)
+
+        if 'text' in (file_type, mime):
+            return self.index_text(filename)
 
     def index_asc(self, filename):
         pass
@@ -124,13 +138,118 @@ class Indexer(Elasticsearch):
         return self.index(index="gif", doc_type="gif", body=data)
 
     def index_kml(self, filename):
-        pass
+        data = xmltodict.parse(open(filename).read())
+
+        data['filename'] = filename
+
+        return self.index(index="kml", doc_type="kml", body=data)
 
     def index_kmz(self, filename):
-        pass
+        if not zipfile.is_zipfile(filename):
+            raise TypeError("{0} is not a zipfile".format(filename))
+
+        data = {'files':[]}
+
+        zf = zipfile.ZipFile(filename)
+
+        for info in zf.infolist():
+            data['files'].append({
+                'filename':        info.filename,
+                'comment':         info.comment,
+                'version':         info.create_version,
+                'compressed_size': info.compress_size,
+                'size':            info.file_size,
+            })
+
+        data['filename'] = filename
+
+        return self.index(index="kmz", doc_type="kmz", body=data)
 
     def index_mdb(self, filename):
-        pass
+        tables = subprocess.Popen(
+	    ["mdb-tables", "-d,", "-t", "table", filename],
+            stdout=subprocess.PIPE
+        ).communicate()[0]
+
+	tables = tables.rstrip('\n').split(',')
+
+	data = {}
+	data['tables'] = []
+
+	for table in tables:
+	    raw_data = subprocess.Popen(
+		["mdb-export", filename, table],
+		stdout=subprocess.PIPE
+	    ).communicate()[0]
+
+	    raw_data = raw_data.rstrip('\n').split('\n')
+
+	    if not filter(None, raw_data):
+		continue
+
+	    d = {}
+	    d['table'] = table
+	    d['data'] = {}
+
+	    headers = []
+            for line in raw_data:
+		if not headers:
+		    headers = line.split(',')
+		    for header in headers:
+		        d['data'][header] = []
+		    continue
+
+		for col, v in zip(headers, line.split(',')):
+		    d['data'][col].append(v.replace('"', '').replace("'", ""))
+
+	    d['columns'] = headers
+	    data['tables'].append(d)
+
+	if not data:
+	    return
+
+	data['filename'] = filename
+
+	return self.index(index="mdb", doc_type="mdb", body=data)
+
+    def index_dbf(self, filename):
+	try:
+	    table = DBF(
+		filename,
+		ignorecase              = True,
+		ignore_missing_memofile = True,
+	    )
+	except Exception as e:
+	    try:
+		table = DBF(
+		    filename,
+		    ignorecase              = True,
+		    ignore_missing_memofile = True,
+		    raw                     = True,
+		    encoding                = 'iso-8859-1',
+		)
+	    except Exception as ee:
+		table = DBF(
+		    filename,
+		    ignorecase              = True,
+		    ignore_missing_memofile = True,
+		    encoding                = 'utf8',
+		)
+
+	data = {}
+	data['fields']     = table.field_names
+	data['db_version'] = table.header.dbversion
+	data['year']       = table.header.year
+	data['month']      = table.header.month
+	data['day']        = table.header.day
+	data['records']    = table.header.numrecords
+
+	data['filename'] = filename
+
+	# XXX: get more data
+	# https://dbfread.readthedocs.io/en/latest/dbf_objects.html
+
+        return self.index(index="dbf", doc_type="dbf", body=data)
 
     def index_pdf(self, filename):
         output = subprocess.Popen(
@@ -179,7 +298,13 @@ class Indexer(Elasticsearch):
         return self.index(index="pptx", doct_type="pptx", body=data)
 
     def index_scn(self, filename):
-        pass
+        with open(filename) as f:
+            meta = str(f.read())
+            data = {'text': meta}
+
+        data['filename'] = filename
+
+        return self.index(index="scn", doc_type="scn", body=data)
 
     def index_shp(self, filename):
         sf = shapefile.Reader(filename)
@@ -258,7 +383,7 @@ class Indexer(Elasticsearch):
         return self.index(index="xml", doc_type="xml", body=data)
 
     def index_xyz(self, filename):
-        pass
+        return self._index_magic(filename)
 
     def index_zip(self, filename):
         if not zipfile.is_zipfile(filename):
@@ -269,13 +394,19 @@ class Indexer(Elasticsearch):
         zf = zipfile.ZipFile(filename)
 
         for info in zf.infolist():
-            data['files'].append({
+            d = {
                 'filename':        info.filename,
                 'comment':         info.comment,
                 'version':         info.create_version,
                 'compressed_size': info.compress_size,
                 'size':            info.file_size,
-            })
+            }
+
+            if self.deep:
+                # XXX: handle this
+                pass
+
+            data['files'].append(d)
 
         data['filename'] = filename
 
