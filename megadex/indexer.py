@@ -13,7 +13,6 @@ from dbfread       import DBF
 from elasticsearch import Elasticsearch
 from openpyxl      import load_workbook
 from pptx          import Presentation
-from pykml         import parser as kml_parser
 from megadex.util  import get_ext
 
 
