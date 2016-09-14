@@ -4,7 +4,7 @@ setup(
     name             = "megadex",
     description      = "Mega Indexer",
     url              = "https://github.com/hodgesds/megadex",
-    version          = "0.0.4",
+    version          = "0.0.6",
     author           = "Daniel Hodges",
     author_email     = "hodges.daniel.scott@gmail.com",
     scripts          = [ "bin/megadex" ],

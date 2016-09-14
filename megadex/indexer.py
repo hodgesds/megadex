@@ -4,7 +4,6 @@ import exifread
 import json
 import logging
 import magic
-import pyodbc
 import shapefile
 import subprocess
 import xlrd
