@@ -22,7 +22,8 @@ logger = logging.getLogger('megadex')
 class Indexer(Elasticsearch):
 
     def __init__(self, *args, **kwargs):
-        self.deep = kwargs.pop('deep', False)
+        self.deep      = kwargs.pop('deep', False)
+        self.paged_pdf = kwargs.pop('paged_pdf', False)
         super(Indexer, self).__init__(*args, **kwargs)
 
     def index_file(self, filename):
@@ -255,7 +256,19 @@ class Indexer(Elasticsearch):
             stdout=subprocess.PIPE
         ).communicate()[0]
         data = {'text': output}
-        data['filename'] = filename
+
+        if self.paged_pdf:
+            trunc_filename = filename.rstrip('.pdf')
+            try:
+                page = trunc_filename[trunc_filename.rindex('-')+1:]
+            except Exception as e:
+                logger.warn(e.info)
+                page = '1'
+
+            data['page'] = page
+            data['filename'] = trunc_filename.rstrip('-' + page) + '.pdf'
+        else:
+            data['filename'] = filename
 
         return self.index(index="pdf", doc_type="pdf", body=data)
 
@@ -337,7 +350,7 @@ class Indexer(Elasticsearch):
             d['sheet'] = sheet
             for rx in range(sheet.nrows):
                 # XXX
-                print sheet.row(rx)
+                pass
 
             data['sheets'].append(d)
 

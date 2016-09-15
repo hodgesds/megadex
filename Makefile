@@ -11,7 +11,7 @@ clean:
 
 .PHONY: upload
 upload: test
-	python setup.py sdist upload -r mmal
+	python setup.py sdist upload -r pypi
 
 test:
 	tox

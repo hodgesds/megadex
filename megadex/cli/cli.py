@@ -57,6 +57,14 @@ def mk_parser():
     )
 
     parser.add_argument(
+	'--paged-pdf',
+	action  = 'store_true',
+	default = False,
+	dest    = 'paged_pdf',
+	help    = 'Paged PDF files (format is pdf_foo-{page}.pdf)'
+    )
+
+    parser.add_argument(
 	'--port',
 	default = os.environ.get('ES_PORT', 9200),
 	help    = 'Elasticsearch port ES_PORT'
@@ -124,13 +132,14 @@ def main():
 
     indexer = Indexer(
 	args.es_hosts,
-	http_auth    = (args.http_user, args.http_password),
-	port         = args.port,
-	use_ssl      = args.ssl,
-	verify_certs = args.verify_certs,
 	ca_certs     = args.ca_certs,
 	client_cert  = args.es_cert,
 	client_key   = args.es_key,
+	http_auth    = (args.http_user, args.http_password),
+        paged_pdf    =args.paged_pdf,
+	port         = args.port,
+	use_ssl      = args.ssl,
+	verify_certs = args.verify_certs,
     )
 
     # Steps:
@@ -162,6 +171,7 @@ def main():
 
     event_handler = ChangeHandler(**{'indexer':indexer})
 
+    # 3)
     observer = Observer()
     observer.schedule(event_handler, args.dir, recursive=True)
     observer.start()
