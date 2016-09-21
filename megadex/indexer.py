@@ -185,7 +185,7 @@ class Indexer(Elasticsearch):
 	tables = tables.rstrip('\n').split(',')
 
 	data = {}
-	data['tables'] = []
+	data['filename'] = filename
 
 	for table in tables:
 	    raw_data = subprocess.Popen(
@@ -198,7 +198,7 @@ class Indexer(Elasticsearch):
 	    if not filter(None, raw_data):
 		continue
 
-	    d = {}
+	    d = data
 	    d['table'] = table
 	    d['data'] = {}
 
@@ -213,15 +213,9 @@ class Indexer(Elasticsearch):
 		for col, v in zip(headers, line.split(',')):
 		    d['data'][col].append(v.replace('"', '').replace("'", ""))
 
-	    d['columns'] = headers
-	    data['tables'].append(d)
+                    self.index(index="mdb", doc_type="mdb", body=d)
 
-	if not data:
-	    return
-
-	data['filename'] = filename
-
-	return self.index(index="mdb", doc_type="mdb", body=data)
+        return None
 
     def index_dbf(self, filename):
 	try:
@@ -358,28 +352,24 @@ class Indexer(Elasticsearch):
         book = xlrd.open_workbook(filename)
         sheets = book.sheet_names()
         data = {}
-        data['sheets'] = []
+        data['filename'] = filename
 
         for sheet_name in sheets:
-            d = {}
+            d = data
             sheet = book.sheet_by_name(sheet_name)
             d['sheet'] = sheet
             for rx in range(sheet.nrows):
                 # XXX
                 pass
 
-            data['sheets'].append(d)
-
-        data['filename'] = filename
-
-        return self.index(index="xls", doc_type="xls", body=data)
+                return self.index(index="xls", doc_type="xls", body=d)
 
     def index_xlsx(self, filename):
         wb = load_workbook(filename, use_iterators=True)
         sheets = wb.get_sheet_names()
         logger.info("logging: {0}".format(sheets))
         data = {}
-        data['sheets'] = []
+        data['filename'] = filename
         for sheet_name in sheets:
             sheet   = wb[sheet_name]
             headers = []
@@ -396,14 +386,17 @@ class Indexer(Elasticsearch):
                     for col, x in zip(headers, row):
                         d[col].append(x.value)
 
-            data['sheets'].append(d)
+                self.index(index="xlsx", doc_type="xlsx", body=data)
 
-        data['filename'] = filename
-
-        return self.index(index="xlsx", doc_type="xlsx", body=data)
+        return None
 
     def index_xml(self, filename):
-        data = xmltodict.parse(open(filename).read())
+        data = {}
+
+        # XXX: make this smart
+        if os.path.getsize(filename) < 1000000:
+            data = xmltodict.parse(open(filename).read())
+
 
         data['filename'] = filename
 
