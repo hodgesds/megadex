@@ -87,7 +87,13 @@ class Indexer(Elasticsearch):
             return self.index_text(filename)
 
     def index_asc(self, filename):
-        pass
+        with open(filename) as f:
+            meta = str(f.read())
+            data = {'text': meta}
+
+        data['filename'] = filename
+
+        return self.index(index="asc", doc_type="asc", body=data)
 
     def index_csv(self, filename):
         with open(filename, mode='r') as infile:
@@ -137,7 +143,11 @@ class Indexer(Elasticsearch):
         return self.index(index="gif", doc_type="gif", body=data)
 
     def index_kml(self, filename):
-        data = xmltodict.parse(open(filename).read())
+        data = {}
+
+        # XXX: make this smart
+        if os.path.getsize(filename) < 1000000:
+            data = xmltodict.parse(open(filename).read())
 
         data['filename'] = filename
 
@@ -289,24 +299,28 @@ class Indexer(Elasticsearch):
         data = {}
 	# text_runs will be populated with a list of strings,
 	# one for each text run in presentation
-	text_runs = []
 
-	for slide in prs.slides:
+        data['filename'] = filename
+
+        res = None
+
+	for i, slide in enumerate(prs.slides):
 	    for shape in slide.shapes:
 		if not shape.has_text_frame:
 		    continue
+
+                text_runs = []
 		for paragraph in shape.text_frame.paragraphs:
 		    for run in paragraph.runs:
 			text_runs.append(run.text)
 
-        data['filename'] = filename
+                d = data
+                d['page'] = i + 1
+                d['text'] = "\n".join(text_runs)
 
-        data['slides'] = dict(
-            (x, text)
-            for x, text in enumerate(text_runs)
-        )
+                res = self.index(index="pptx", doc_type="pptx", body=d)
 
-        return self.index(index="pptx", doct_type="pptx", body=data)
+        return res
 
     def index_scn(self, filename):
         with open(filename) as f:
