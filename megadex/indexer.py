@@ -3,6 +3,8 @@ import docx
 import exifread
 import json
 import logging
+import os
+import os.path
 import magic
 import shapefile
 import subprocess
